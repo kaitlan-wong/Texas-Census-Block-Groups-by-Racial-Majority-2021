@@ -1,0 +1,154 @@
+---
+title: "Texas Census Block Groups by Racial Majority"
+author: "Kaitlan Wong"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidycensus)
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(dplyr)
+```
+
+```{r}
+# Look at ACS 5-Year tables
+
+v21 <- load_variables(2021, "acs5", cache = TRUE)
+
+View(v21)
+```
+
+***Load 2021 ACS 5-Year Estimates using the Hispanic or Latino by Race tables.***
+
+Variable definitions: (from "HISPANIC OR LATINO ORIGIN BY RACE" concept in v21)
+
+-   **B03002_001**: Estimate!!Total:
+
+-   **B03002_003**: Estimate!!Total:!!Not Hispanic or Latino:!!White alone
+
+-   **B03002_004**: Estimate!!Total:!!Not Hispanic or Latino:!!Black or African American alone
+
+-   **B03002_005**: Estimate!!Total:!!Not Hispanic or Latino:!!American Indian and Alaska Native alone
+
+-   **B03002_006**: Estimate!!Total:!!Not Hispanic or Latino:!!Asian alone
+
+-   **B03002_007**: Estimate!!Total:!!Not Hispanic or Latino:!!Native Hawaiian and Other Pacific Islander alone
+
+-   **B03002_008**: Estimate!!Total:!!Not Hispanic or Latino:!!Some other race alone
+
+-   **B03002_009**: Estimate!!Total:!!Not Hispanic or Latino:!!Two or more races:
+
+-   **B03002_012**: Estimate!!Total:!!Hispanic or Latino:
+
+See <https://walker-data.com/tidycensus/articles/basic-usage.html>
+
+```{r}
+# Get ACS data
+acs21 <- get_acs(
+  state = "TX",
+  geography = "block group",
+  variables = c("B03002_001", "B03002_003", "B03002_004", "B03002_005", "B03002_006","B03002_007", "B03002_008", "B03002_009", "B03002_012"),
+  survey = "acs5",
+  year = 2021,
+  recode = TRUE,
+)
+
+# View data
+head(acs21)
+```
+
+Reshape the data.
+
+```{r}
+# Remove the "moe" column from the dataset
+acs21_no_moe <- acs21 %>%
+  select(-moe)
+
+library(tidyr)
+
+# Reshape the data and aggregate
+data21 <- acs21_no_moe %>%
+  pivot_wider(names_from = variable, values_from = estimate) %>%
+  group_by(NAME) %>%
+  ungroup()
+
+# View data
+head(data21)
+
+```
+
+```{r}
+# Create AAPI and Other columns and rename variables
+
+names <- data21 %>%
+  mutate(
+    NH_AAPI = B03002_006 + B03002_007,
+    NH_Other = B03002_008 + B03002_009
+  ) %>%
+  rename(
+    Total_Pop = B03002_001,
+    NH_White = B03002_003,
+    NH_Black = B03002_004,
+    NH_AIAN = B03002_005,
+    NH_Asian = B03002_006,
+    NH_NHPI = B03002_007,
+    NH_SomeOtherAlone = B03002_008,
+    NH_Multiracial = B03002_009,
+    Hispanic = B03002_012
+  )
+
+head(names)
+```
+
+```{r}
+# Calculate percentage columns
+percentage_data <- names %>%
+  mutate(
+    NH_White_Per = NH_White / Total_Pop,
+    NH_Black_Per = NH_Black / Total_Pop,
+    NH_AIAN_Per = NH_AIAN / Total_Pop,
+    NH_Asian_Per = NH_Asian / Total_Pop,
+    NH_NHPI_Per = NH_NHPI / Total_Pop,
+    NH_SomeOtherAlone_Per = NH_SomeOtherAlone / Total_Pop,
+    NH_Multiracial_Per = NH_Multiracial / Total_Pop,
+    Hispanic_Per = Hispanic / Total_Pop,
+    NH_AAPI_Per = NH_AAPI / Total_Pop,
+    NH_Other_Per = NH_Other / Total_Pop
+  )
+
+# View the data with percentage columns
+head(percentage_data)
+```
+
+```{r}
+# Calculate the racial majority column
+racial_majorities <- percentage_data %>%
+  mutate(
+    Racial_Majority = case_when(
+      NH_White_Per > 0.5 ~ "NH_White",
+      NH_Black_Per > 0.5 ~ "NH_Black",
+      NH_AIAN_Per > 0.5 ~ "NH_AIAN",
+      NH_AAPI_Per > 0.5 ~ "NH_AAPI",
+      NH_Other_Per > 0.5 ~ "NH_Other",
+      Hispanic_Per > 0.5 ~ "Hispanic",
+      TRUE ~ "Racially Diverse"
+    )
+  )
+
+# View the data with the racial majority column
+head(racial_majorities)
+```
+
+Save data to Excel.
+
+```{r}
+# Define the Excel file name
+excel_file_name <- "Texas Census Block Groups by Racial Majority_2021 ACS5.xlsx"
+
+# Export the entire data frame to Excel
+write_xlsx(racial_majorities, excel_file_name)
+```
